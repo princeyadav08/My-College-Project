@@ -6,9 +6,8 @@
   <title>Admin Login</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
       background: radial-gradient(circle at 20% 20%, #1e1b4b 0%, #0f172a 50%, #020617 100%);
       min-height: 100vh;
       color: #f8fafc;
@@ -17,73 +16,79 @@
       justify-content: center;
       align-items: center;
     }
-
-    .login-card {
+    .card {
       background: rgba(255, 255, 255, 0.04);
       backdrop-filter: blur(24px);
       padding: 32px;
       border-radius: 20px;
       border: 1px solid rgba(255, 255, 255, 0.1);
-      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
       width: 100%;
-      max-width: 380px;
+      max-width: 400px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
     }
-
-    h2 { color: #38bdf8; margin-bottom: 20px; text-align: center; font-size: 1.3rem; }
+    h2 { color: #38bdf8; text-align: center; margin-bottom: 20px; }
     label { font-size: 0.85rem; color: #94a3b8; display: block; margin-bottom: 6px; }
-
     input {
       width: 100%;
-      padding: 12px 14px;
-      margin-bottom: 16px;
+      padding: 12px;
+      margin-bottom: 14px;
       border-radius: 10px;
       border: 1px solid rgba(255, 255, 255, 0.12);
       background: rgba(15, 23, 42, 0.5);
       color: #fff;
       font-size: 0.95rem;
     }
-
     input:focus { outline: none; border-color: #38bdf8; }
-
-    .btn-login {
-      background: linear-gradient(135deg, rgba(10, 132, 255, 0.85), rgba(0, 199, 255, 0.7));
-      color: #fff;
-      border: none;
-      padding: 12px;
-      border-radius: 980px;
-      font-weight: 600;
-      cursor: pointer;
+    
+    /* Perfect Eye Icon Alignment */
+    .input-wrapper {
+      position: relative;
       width: 100%;
-      font-size: 0.95rem;
-    }
-
-    .card-footer {
-      display: flex;
-      justify-content: space-between;
-      margin-top: 20px;
-      padding-top: 14px;
-      border-top: 1px solid rgba(255, 255, 255, 0.1);
-      font-size: 0.85rem;
-    }
-
-    .card-footer a { color: #94a3b8; text-decoration: none; }
-    .card-footer a:hover { color: #38bdf8; }
-
-    .alert {
-      padding: 10px 14px;
-      border-radius: 10px;
-      font-size: 0.85rem;
       margin-bottom: 14px;
     }
+    .input-wrapper input {
+      margin-bottom: 0;
+      padding-right: 44px;
+    }
+    .toggle-pwd {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      color: #94a3b8;
+      cursor: pointer;
+      font-size: 1.1rem;
+      padding: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
 
-    .alert-danger { background: rgba(255, 69, 58, 0.15); border: 1px solid rgba(255, 69, 58, 0.3); color: #ff453a; }
+    button.btn-login {
+      width: 100%;
+      padding: 12px;
+      border-radius: 980px;
+      border: none;
+      background: linear-gradient(135deg, #38bdf8, #0a84ff);
+      color: #0f172a;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 6px;
+      font-size: 0.95rem;
+    }
+    .links { display: flex; justify-content: space-between; margin-top: 18px; font-size: 0.85rem; }
+    .links a { color: #38bdf8; text-decoration: none; }
+    .links a:hover { text-decoration: underline; }
+    .alert { padding: 10px; border-radius: 8px; margin-bottom: 14px; font-size: 0.85rem; }
+    .alert-danger { background: rgba(255, 69, 58, 0.2); color: #ff453a; }
+    .alert-success { background: rgba(48, 209, 88, 0.2); color: #30d158; }
   </style>
 </head>
 <body>
-
-  <div class="login-card">
-    <h2>Admin Portal Login</h2>
-
+  <div class="card">
+    <h2>Admin Login</h2>
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
         {% for category, message in messages %}
@@ -91,22 +96,31 @@
         {% endfor %}
       {% endif %}
     {% endwith %}
-
+    
     <form action="/login" method="POST">
-      <label>Username</label>
-      <input type="text" name="username" placeholder="Sunny" required>
+      <label>Email or Phone Number</label>
+      <input type="text" name="identifier" placeholder="admin@example.com" required>
 
       <label>Password</label>
-      <input type="password" name="password" placeholder="••••••••" required>
+      <div class="input-wrapper">
+        <input type="password" id="login_pwd" name="password" placeholder="Password" required>
+        <button type="button" class="toggle-pwd" onclick="togglePassword()">👁️</button>
+      </div>
 
-      <button class="btn-login" type="submit">Sign In</button>
+      <button type="submit" class="btn-login">Log In</button>
+
+      <div class="links">
+        <a href="/">&larr; User Portal</a>
+        <a href="/reset-password">Forgot Password?</a>
+      </div>
     </form>
-
-    <div class="card-footer">
-      <a href="/">&larr; Portal Home</a>
-      <a href="/reset-password" style="color: #38bdf8;">Forgot Password?</a>
-    </div>
   </div>
 
+  <script>
+    function togglePassword() {
+      const pwd = document.getElementById('login_pwd');
+      pwd.type = pwd.type === 'password' ? 'text' : 'password';
+    }
+  </script>
 </body>
 </html>

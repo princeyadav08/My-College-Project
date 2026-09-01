@@ -1,187 +1,207 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, Response, jsonify
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, session, Response
+import random
+import time
 import sqlite3
-import csv
 import io
-import math
+import csv
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-app.secret_key = "super_secret_flask_key_123"
+app.secret_key = "super-secret-key-123"
+
 DB_NAME = "database.db"
+otp_store = {}
 
-# Master Admin Credentials & Recovery Key
-DEFAULT_ADMIN_USER = "Sunny"
-DEFAULT_ADMIN_PASS = "Sunny@123"
-MASTER_SECURITY_KEY = "SECURE_KEY_999"
-
-# Initialize SQLite database
 def init_db():
-    with sqlite3.connect(DB_NAME, timeout=10) as conn:
+    with sqlite3.connect(DB_NAME) as conn:
         cursor = conn.cursor()
-        
-        # User submissions table
-        cursor.execute('''
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                email TEXT NOT NULL,
-                message TEXT NOT NULL,
+                name TEXT,
+                email TEXT,
+                phone TEXT,
+                message TEXT,
+                password TEXT,
+                status TEXT DEFAULT 'Pending',
+                is_admin INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-        ''')
-        
-        # Admin authentication table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS admin_auth (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                password TEXT NOT NULL
+        """)
+        # Ensure schema migrations run smoothly
+        cursor.execute("PRAGMA table_info(users)")
+        columns = [col[1] for col in cursor.fetchall()]
+        if 'status' not in columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN status TEXT DEFAULT 'Pending'")
+        if 'password' not in columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN password TEXT")
+        if 'phone' not in columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN phone TEXT")
+        if 'is_admin' not in columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0")
+
+        # Create default admin if not existing
+        cursor.execute("SELECT id FROM users WHERE email = 'admin@example.com'")
+        if not cursor.fetchone():
+            default_pw = generate_password_hash("admin123")
+            cursor.execute(
+                "INSERT INTO users (name, email, phone, message, password, status, is_admin) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                ("Administrator", "admin@example.com", "9999999999", "System Admin", default_pw, 'Resolved', 1)
             )
-        ''')
-        
-        # Ensure default admin exists
-        cursor.execute("SELECT password FROM admin_auth WHERE username = ?", (DEFAULT_ADMIN_USER,))
-        row = cursor.fetchone()
-        if not row:
-            cursor.execute("INSERT OR REPLACE INTO admin_auth (username, password) VALUES (?, ?)", 
-                           (DEFAULT_ADMIN_USER, DEFAULT_ADMIN_PASS))
         conn.commit()
 
 init_db()
 
-# Main Portal Route
+# --- User Portal & Admin Dashboard ---
 @app.route('/', methods=['GET', 'POST'])
 def index():
     if request.method == 'POST':
-        name = request.form.get('name', '').strip()
-        email = request.form.get('email', '').strip()
-        message = request.form.get('message', '').strip()
+        name = request.form.get('name')
+        email = request.form.get('email')
+        phone = request.form.get('phone')
+        message = request.form.get('message')
 
-        if name and email and message:
-            with sqlite3.connect(DB_NAME, timeout=10) as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "INSERT INTO users (name, email, message) VALUES (?, ?, ?)",
-                    (name, email, message)
-                )
-                conn.commit()
-            flash("Your response has been submitted successfully!", "success")
-        else:
-            flash("All fields are required.", "danger")
-
+        with sqlite3.connect(DB_NAME, timeout=10) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO users (name, email, phone, message, status) VALUES (?, ?, ?, ?, 'Pending')",
+                (name, email, phone, message)
+            )
+            conn.commit()
+        flash("Your message has been submitted successfully!", "success")
         return redirect(url_for('index'))
 
-    # Admin Search & Pagination
-    search_query = request.args.get('search', '').strip()
-    page = request.args.get('page', 1, type=int)
-    per_page = 5
-    offset = (page - 1) * per_page
-
     records = []
-    total_pages = 1
-    total_records = 0
+    stats = {'total': 0, 'pending': 0, 'resolved': 0}
 
     if session.get('is_admin'):
         with sqlite3.connect(DB_NAME, timeout=10) as conn:
             cursor = conn.cursor()
-            if search_query:
-                wildcard = f"%{search_query}%"
-                cursor.execute(
-                    "SELECT COUNT(*) FROM users WHERE name LIKE ? OR email LIKE ? OR message LIKE ?",
-                    (wildcard, wildcard, wildcard)
-                )
-                total_records = cursor.fetchone()[0]
-
-                cursor.execute(
-                    "SELECT id, name, email, message, created_at FROM users WHERE name LIKE ? OR email LIKE ? OR message LIKE ? ORDER BY id DESC LIMIT ? OFFSET ?",
-                    (wildcard, wildcard, wildcard, per_page, offset)
-                )
-            else:
-                cursor.execute("SELECT COUNT(*) FROM users")
-                total_records = cursor.fetchone()[0]
-
-                cursor.execute(
-                    "SELECT id, name, email, message, created_at FROM users ORDER BY id DESC LIMIT ? OFFSET ?",
-                    (per_page, offset)
-                )
+            cursor.execute("SELECT id, name, email, phone, message, status, created_at FROM users WHERE is_admin = 0 ORDER BY id DESC")
             records = cursor.fetchall()
 
-        total_pages = math.ceil(total_records / per_page) if total_records > 0 else 1
+            cursor.execute("SELECT COUNT(*) FROM users WHERE is_admin = 0")
+            stats['total'] = cursor.fetchone()[0]
 
-    return render_template(
-        'index.html',
-        records=records,
-        search_query=search_query,
-        page=page,
-        total_pages=total_pages,
-        total_records=total_records,
-        is_admin=session.get('is_admin', False)
-    )
+            cursor.execute("SELECT COUNT(*) FROM users WHERE status = 'Pending' AND is_admin = 0")
+            stats['pending'] = cursor.fetchone()[0]
 
-# Admin Login Route
+            cursor.execute("SELECT COUNT(*) FROM users WHERE status = 'Resolved' AND is_admin = 0")
+            stats['resolved'] = cursor.fetchone()[0]
+
+    return render_template('index.html', records=records, stats=stats)
+
+# --- Toggle Status (Pending / Resolved) ---
+@app.route('/toggle-status/<int:user_id>', methods=['POST'])
+def toggle_status(user_id):
+    if not session.get('is_admin'):
+        return jsonify({'status': 'unauthorized'}), 401
+
+    with sqlite3.connect(DB_NAME, timeout=10) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT status FROM users WHERE id = ?", (user_id,))
+        row = cursor.fetchone()
+        if row:
+            new_status = 'Resolved' if row[0] == 'Pending' else 'Pending'
+            cursor.execute("UPDATE users SET status = ? WHERE id = ?", (new_status, user_id))
+            conn.commit()
+            return jsonify({'status': 'success', 'new_status': new_status})
+    return jsonify({'status': 'not_found'}), 404
+
+# --- Admin Login ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form.get('username', '').strip()
-        password = request.form.get('password', '').strip()
+        identifier = request.form.get('identifier', '').strip()
+        password = request.form.get('password', '')
 
-        # Database Check
         with sqlite3.connect(DB_NAME, timeout=10) as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT password FROM admin_auth WHERE username = ?", (username,))
-            row = cursor.fetchone()
-            db_password = row[0] if row else None
+            cursor.execute(
+                "SELECT id, name, password, is_admin FROM users WHERE (email = ? OR phone = ?)",
+                (identifier, identifier)
+            )
+            user = cursor.fetchone()
 
-        # Verify against DB or Default Fallback
-        if (db_password and password == db_password) or (username == DEFAULT_ADMIN_USER and password == DEFAULT_ADMIN_PASS):
-            session['is_admin'] = True
-            flash("Welcome back, Admin!", "success")
+        if user and user[2] and check_password_hash(user[2], password):
+            session['user_id'] = user[0]
+            session['user_name'] = user[1]
+            session['is_admin'] = bool(user[3])
+            flash("Logged in successfully!", "success")
             return redirect(url_for('index'))
         else:
-            flash("Invalid Username or Password. Use: Sunny / Sunny@123", "danger")
+            flash("Invalid email/phone or password.", "danger")
 
     return render_template('login.html')
 
-# Admin Password Reset Route
+# --- Send OTP (Email or Phone) ---
+@app.route('/send-otp', methods=['POST'])
+def send_otp():
+    data = request.get_json() or {}
+    identifier = data.get('identifier', '').strip()
+    
+    if not identifier:
+        return jsonify({'error': 'Please provide email or phone number'}), 400
+
+    with sqlite3.connect(DB_NAME, timeout=10) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM users WHERE email = ? OR phone = ?", (identifier, identifier))
+        user = cursor.fetchone()
+
+    if not user:
+        return jsonify({'error': 'No account found with this Email / Phone'}), 404
+
+    otp = str(random.randint(100000, 999999))
+    otp_store[identifier] = {
+        'otp': otp,
+        'expires_at': time.time() + 300
+    }
+    
+    print(f"\n=============================")
+    print(f" OTP for [{identifier}]: {otp} ")
+    print(f"=============================\n")
+    
+    return jsonify({'message': f'OTP successfully sent to {identifier}'}), 200
+
+# --- Reset Password ---
 @app.route('/reset-password', methods=['GET', 'POST'])
 def reset_password():
     if request.method == 'POST':
-        username = request.form.get('username', '').strip()
-        security_key = request.form.get('security_key', '').strip()
-        new_password = request.form.get('new_password', '').strip()
-        confirm_password = request.form.get('confirm_password', '').strip()
-
-        if security_key != MASTER_SECURITY_KEY:
-            flash("Invalid Master Security Key. Use: SECURE_KEY_999", "danger")
-            return redirect(url_for('reset_password'))
+        identifier = request.form.get('identifier', '').strip()
+        entered_otp = request.form.get('otp', '').strip()
+        new_password = request.form.get('new_password')
+        confirm_password = request.form.get('confirm_password')
 
         if new_password != confirm_password:
-            flash("Passwords do not match.", "danger")
-            return redirect(url_for('reset_password'))
+            flash('Passwords do not match!', 'danger')
+            return render_template('reset_password.html')
 
+        stored = otp_store.get(identifier)
+        if not stored:
+            flash('Please request an OTP first.', 'danger')
+            return render_template('reset_password.html')
+
+        if time.time() > stored['expires_at']:
+            flash('OTP has expired. Please request a new one.', 'danger')
+            return render_template('reset_password.html')
+
+        if stored['otp'] != entered_otp:
+            flash('Invalid OTP entered.', 'danger')
+            return render_template('reset_password.html')
+
+        hashed_pw = generate_password_hash(new_password)
         with sqlite3.connect(DB_NAME, timeout=10) as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT id FROM admin_auth WHERE username = ?", (username,))
-            admin = cursor.fetchone()
-
-            if admin:
-                cursor.execute("UPDATE admin_auth SET password = ? WHERE username = ?", (new_password, username))
-            else:
-                cursor.execute("INSERT INTO admin_auth (username, password) VALUES (?, ?)", (username, new_password))
+            cursor.execute("UPDATE users SET password = ? WHERE email = ? OR phone = ?", (hashed_pw, identifier, identifier))
             conn.commit()
-
-        flash("Password updated successfully! Log in with your new password.", "success")
+        
+        otp_store.pop(identifier, None)
+        flash('Password successfully reset! Please login now.', 'success')
         return redirect(url_for('login'))
 
     return render_template('reset_password.html')
 
-# Admin Logout Route
-@app.route('/logout')
-def logout():
-    session.clear()
-    flash("Logged out successfully.", "info")
-    return redirect(url_for('index'))
-
-# Edit Record Route (Admin Only)
+# --- Edit Record (Admin Only) ---
 @app.route('/edit/<int:user_id>', methods=['GET', 'POST'])
 def edit_record(user_id):
     if not session.get('is_admin'):
@@ -193,17 +213,18 @@ def edit_record(user_id):
         if request.method == 'POST':
             name = request.form.get('name')
             email = request.form.get('email')
+            phone = request.form.get('phone')
             message = request.form.get('message')
 
             cursor.execute(
-                "UPDATE users SET name = ?, email = ?, message = ? WHERE id = ?",
-                (name, email, message, user_id)
+                "UPDATE users SET name = ?, email = ?, phone = ?, message = ? WHERE id = ?",
+                (name, email, phone, message, user_id)
             )
             conn.commit()
             flash(f"Record #{user_id} updated successfully!", "success")
             return redirect(url_for('index'))
 
-        cursor.execute("SELECT id, name, email, message FROM users WHERE id = ?", (user_id,))
+        cursor.execute("SELECT id, name, email, phone, message FROM users WHERE id = ?", (user_id,))
         record = cursor.fetchone()
 
     if not record:
@@ -212,8 +233,8 @@ def edit_record(user_id):
 
     return render_template('edit.html', record=record)
 
-# Delete Record Route (Admin Only)
-@app.route('/delete/<int:user_id>', methods=['POST'])
+# --- Delete Record (Admin Only) ---
+@app.route('/delete/<int:user_id>', methods=['GET', 'POST'])
 def delete_record(user_id):
     if not session.get('is_admin'):
         flash("Unauthorized access. Please log in first.", "danger")
@@ -227,22 +248,28 @@ def delete_record(user_id):
     flash(f"Record #{user_id} deleted successfully!", "success")
     return redirect(url_for('index'))
 
-# Export CSV Route (Admin Only)
+# --- Logout ---
+@app.route('/logout')
+def logout():
+    session.clear()
+    flash("Logged out successfully.", "info")
+    return redirect(url_for('index'))
+
+# --- Export CSV (Admin Only) ---
 @app.route('/export')
 def export_csv():
     if not session.get('is_admin'):
-        flash("Unauthorized access. Please log in first.", "danger")
+        flash("Unauthorized access.", "danger")
         return redirect(url_for('login'))
 
     with sqlite3.connect(DB_NAME, timeout=10) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT id, name, email, message, created_at FROM users ORDER BY id DESC")
+        cursor.execute("SELECT id, name, email, phone, message, status, created_at FROM users WHERE is_admin = 0 ORDER BY id DESC")
         records = cursor.fetchall()
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(['ID', 'Name', 'Email', 'Message', 'Timestamp'])
-
+    writer.writerow(['ID', 'Name', 'Email', 'Phone', 'Message', 'Status', 'Timestamp'])
     for row in records:
         writer.writerow(row)
 
@@ -253,27 +280,6 @@ def export_csv():
         headers={'Content-Disposition': 'attachment; filename=portal_records.csv'}
     )
 
-# Real-Time Polling Route (Admin Only)
-@app.route('/api/latest-record')
-def get_latest_record():
-    if not session.get('is_admin'):
-        return jsonify({"status": "unauthorized"}), 401
-
-    with sqlite3.connect(DB_NAME, timeout=10) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT id, name, email, message, created_at FROM users ORDER BY id DESC LIMIT 1")
-        record = cursor.fetchone()
-
-    if record:
-        return jsonify({
-            "status": "success",
-            "id": record[0],
-            "name": record[1],
-            "email": record[2],
-            "message": record[3],
-            "created_at": record[4]
-        })
-    return jsonify({"status": "empty"})
-
 if __name__ == '__main__':
     app.run(debug=True)
+    
