@@ -5,6 +5,8 @@ import sqlite3
 import io
 import csv
 from werkzeug.security import generate_password_hash, check_password_hash
+from email_service import send_inquiry_confirmation
+
 
 app = Flask(__name__)
 app.secret_key = "super-secret-key-123"
@@ -67,7 +69,8 @@ def index():
                 "INSERT INTO users (name, email, phone, message, status) VALUES (?, ?, ?, ?, 'Pending')",
                 (name, email, phone, message)
             )
-            conn.commit()
+        conn.commit()
+        send_inquiry_confirmation(email, name)
         flash("Your message has been submitted successfully!", "success")
         return redirect(url_for('index'))
 
