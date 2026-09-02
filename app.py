@@ -6,6 +6,7 @@ import io
 import csv
 from werkzeug.security import generate_password_hash, check_password_hash
 from email_service import send_inquiry_confirmation
+from email_service import send_real_otp, send_inquiry_confirmation
 
 
 app = Flask(__name__)
@@ -43,12 +44,12 @@ def init_db():
             cursor.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0")
 
         # Create default admin if not existing
-        cursor.execute("SELECT id FROM users WHERE email = 'admin@example.com'")
+        cursor.execute("SELECT id FROM users WHERE email = 'yadavprince773899@gmail.com'")
         if not cursor.fetchone():
             default_pw = generate_password_hash("admin123")
             cursor.execute(
                 "INSERT INTO users (name, email, phone, message, password, status, is_admin) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                ("Administrator", "admin@example.com", "9999999999", "System Admin", default_pw, 'Resolved', 1)
+                ("Administrator", "yadavprince773899@gmail.com", "7738990481", "System Admin", default_pw, 'Resolved', 1)
             )
         conn.commit()
 
@@ -137,34 +138,38 @@ def login():
 
     return render_template('login.html')
 
-# --- Send OTP (Email or Phone) ---
+# --- Send Real Email OTP ---
 @app.route('/send-otp', methods=['POST'])
 def send_otp():
     data = request.get_json() or {}
     identifier = data.get('identifier', '').strip()
-    
+
     if not identifier:
         return jsonify({'error': 'Please provide email or phone number'}), 400
 
     with sqlite3.connect(DB_NAME, timeout=10) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT id FROM users WHERE email = ? OR phone = ?", (identifier, identifier))
+        cursor.execute("SELECT id, email FROM users WHERE email = ? OR phone = ?", (identifier, identifier))
         user = cursor.fetchone()
 
     if not user:
         return jsonify({'error': 'No account found with this Email / Phone'}), 404
 
-    otp = str(random.randint(100000, 999999))
+    target_email = user[1]  # Database se user ka real email nikala
+
+    # Real Gmail par OTP dispatch karein
+    success, otp = send_real_otp(target_email)
+
+    if not success:
+        return jsonify({'error': 'Failed to send OTP email. Please check server setup.'}), 500
+
+    # Verification ke liye OTP memory me save karein
     otp_store[identifier] = {
-        'otp': otp,
+        'otp': str(otp),
         'expires_at': time.time() + 300
     }
-    
-    print(f"\n=============================")
-    print(f" OTP for [{identifier}]: {otp} ")
-    print(f"=============================\n")
-    
-    return jsonify({'message': f'OTP successfully sent to {identifier}'}), 200
+
+    return jsonify({'message': f'Real OTP successfully sent to {target_email}'}), 200
 
 # --- Reset Password ---
 @app.route('/reset-password', methods=['GET', 'POST'])
