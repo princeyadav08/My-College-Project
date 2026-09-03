@@ -5,9 +5,7 @@ import sqlite3
 import io
 import csv
 from werkzeug.security import generate_password_hash, check_password_hash
-from email_service import send_inquiry_confirmation
 from email_service import send_real_otp, send_inquiry_confirmation
-
 
 app = Flask(__name__)
 app.secret_key = "super-secret-key-123"
@@ -31,7 +29,6 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        # Ensure schema migrations run smoothly
         cursor.execute("PRAGMA table_info(users)")
         columns = [col[1] for col in cursor.fetchall()]
         if 'status' not in columns:
@@ -43,7 +40,6 @@ def init_db():
         if 'is_admin' not in columns:
             cursor.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0")
 
-        # Create default admin if not existing
         cursor.execute("SELECT id FROM users WHERE email = 'yadavprince773899@gmail.com'")
         if not cursor.fetchone():
             default_pw = generate_password_hash("admin123")
@@ -70,7 +66,8 @@ def index():
                 "INSERT INTO users (name, email, phone, message, status) VALUES (?, ?, ?, ?, 'Pending')",
                 (name, email, phone, message)
             )
-        conn.commit()
+            conn.commit()
+            
         send_inquiry_confirmation(email, name)
         flash("Your message has been submitted successfully!", "success")
         return redirect(url_for('index'))
@@ -80,9 +77,10 @@ def index():
 
     if session.get('is_admin'):
         with sqlite3.connect(DB_NAME, timeout=10) as conn:
+            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute("SELECT id, name, email, phone, message, status, created_at FROM users WHERE is_admin = 0 ORDER BY id DESC")
-            records = cursor.fetchall()
+            records = [dict(row) for row in cursor.fetchall()]
 
             cursor.execute("SELECT COUNT(*) FROM users WHERE is_admin = 0")
             stats['total'] = cursor.fetchone()[0]
@@ -106,13 +104,14 @@ def toggle_status(user_id):
         cursor.execute("SELECT status FROM users WHERE id = ?", (user_id,))
         row = cursor.fetchone()
         if row:
-            new_status = 'Resolved' if row[0] == 'Pending' else 'Pending'
+            current_status = row[0]
+            new_status = 'Resolved' if current_status == 'Pending' else 'Pending'
             cursor.execute("UPDATE users SET status = ? WHERE id = ?", (new_status, user_id))
             conn.commit()
             return jsonify({'status': 'success', 'new_status': new_status})
     return jsonify({'status': 'not_found'}), 404
 
-# --- Admin Login ---
+# --- Admin Login (Crash Fixed) ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -127,12 +126,16 @@ def login():
             )
             user = cursor.fetchone()
 
-        if user and user[2] and check_password_hash(user[2], password):
-            session['user_id'] = user[0]
-            session['user_name'] = user[1]
-            session['is_admin'] = bool(user[3])
-            flash("Logged in successfully!", "success")
-            return redirect(url_for('index'))
+        if user:
+            u_id, u_name, u_password_hash, u_is_admin = user
+            if u_password_hash and check_password_hash(u_password_hash, password):
+                session['user_id'] = u_id
+                session['user_name'] = u_name
+                session['is_admin'] = bool(u_is_admin)
+                flash("Logged in successfully!", "success")
+                return redirect(url_for('index'))
+            else:
+                flash("Invalid email/phone or password.", "danger")
         else:
             flash("Invalid email/phone or password.", "danger")
 
@@ -155,15 +158,13 @@ def send_otp():
     if not user:
         return jsonify({'error': 'No account found with this Email / Phone'}), 404
 
-    target_email = user[1]  # Database se user ka real email nikala
+    target_id, target_email = user
 
-    # Real Gmail par OTP dispatch karein
     success, otp = send_real_otp(target_email)
 
     if not success:
         return jsonify({'error': 'Failed to send OTP email. Please check server setup.'}), 500
 
-    # Verification ke liye OTP memory me save karein
     otp_store[identifier] = {
         'otp': str(otp),
         'expires_at': time.time() + 300
@@ -290,4 +291,3 @@ def export_csv():
 
 if __name__ == '__main__':
     app.run(debug=True)
-    

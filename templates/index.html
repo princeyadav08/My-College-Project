@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{ 'Admin Dashboard' if session.get('is_admin') else 'User Portal' }}</title>
-  <!-- Confetti Library -->
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -22,7 +21,6 @@
       perspective: 1000px;
     }
 
-    /* Ambient Glowing Neon Spheres */
     .bg-glow-1 {
       position: absolute;
       width: 480px;
@@ -53,7 +51,6 @@
       100% { transform: translateY(35px) scale(1.08); }
     }
 
-    /* Frosted Glass 3D Responsive Card */
     .card {
       position: relative;
       z-index: 1;
@@ -215,7 +212,7 @@
     {% endwith %}
 
     {% if session.get('is_admin') %}
-      <!-- ADMIN DASHBOARD -->
+      <!-- ADMIN DASHBOARD (EXACT IMAGE 1 REPLICA) -->
       <div class="header-bar">
         <div>
           <h2>Admin Dashboard</h2>
@@ -230,20 +227,20 @@
       <div class="stats-grid">
         <div class="stat-card">
           <h3>{{ stats.total }}</h3>
-          <span>Total Inquiries</span>
+          <span>TOTAL INQUIRIES</span>
         </div>
         <div class="stat-card">
           <h3 style="color: #fbbf24;">{{ stats.pending }}</h3>
-          <span>Pending Queries</span>
+          <span>PENDING QUERIES</span>
         </div>
         <div class="stat-card">
           <h3 style="color: #4ade80;">{{ stats.resolved }}</h3>
-          <span>Resolved</span>
+          <span>RESOLVED</span>
         </div>
       </div>
 
       <div class="controls-row">
-        <input type="text" id="searchInput" class="search-input" placeholder="Search by Name, Email, or Phone (Press '/' to focus)..." onkeyup="filterRecords()">
+        <input type="text" id="searchInput" class="search-input" placeholder="Search by Name, Email, or Phone..." onkeyup="filterRecords()">
         <div class="filter-pills">
           <button class="pill-btn active" onclick="setStatusFilter('all', this)">All</button>
           <button class="pill-btn" onclick="setStatusFilter('Pending', this)">Pending</button>
@@ -255,41 +252,41 @@
         <thead>
           <tr>
             <th>ID</th>
-            <th>Name</th>
-            <th>Email</th>
-            <th>Phone</th>
-            <th>Message</th>
-            <th>Status</th>
-            <th style="text-align: right;">Action</th>
+            <th>NAME</th>
+            <th>EMAIL</th>
+            <th>PHONE</th>
+            <th>MESSAGE</th>
+            <th>STATUS</th>
+            <th style="text-align: right;">ACTION</th>
           </tr>
         </thead>
         <tbody>
           {% for r in records %}
-          <tr id="row-{{ r[0] }}" data-status="{{ r[5] }}">
-            <td>{{ r[0] }}</td>
-            <td><b>{{ r[1] }}</b></td>
+          <tr id="row-{{ r.id }}" data-status="{{ r.status }}">
+            <td>{{ r.id }}</td>
+            <td><b>{{ r.name }}</b></td>
             <td>
-              <span class="clickable-data" onclick="copyText('{{ r[2] }}')">{{ r[2] }}</span>
-              <a href="mailto:{{ r[2] }}" class="quick-link" title="Send Email">✉️</a>
+              <span class="clickable-data" onclick="copyText('{{ r.email }}')">{{ r.email }}</span>
+              <a href="mailto:{{ r.email }}" class="quick-link" title="Send Email">✉️</a>
             </td>
             <td>
-              {% if r[3] %}
-                <span class="clickable-data" onclick="copyText('{{ r[3] }}')">{{ r[3] }}</span>
-                <a href="https://wa.me/91{{ r[3] }}" target="_blank" class="quick-link" title="Open WhatsApp">💬</a>
+              {% if r.phone %}
+                <span class="clickable-data" onclick="copyText('{{ r.phone }}')">{{ r.phone }}</span>
+                <a href="https://wa.me/91{{ r.phone }}" target="_blank" class="quick-link" title="Open WhatsApp">💬</a>
               {% else %}
                 -
               {% endif %}
             </td>
-            <td>{{ r[4] or '-' }}</td>
+            <td>{{ r.message or '-' }}</td>
             <td>
-              <button class="badge {{ 'badge-resolved' if r[5] == 'Resolved' else 'badge-pending' }}" 
-                      onclick="toggleStatus({{ r[0] }}, this)">
-                {{ r[5] }}
+              <button class="badge {{ 'badge-resolved' if r.status == 'Resolved' else 'badge-pending' }}" 
+                      onclick="toggleStatus({{ r.id }}, this)">
+                {{ r.status }}
               </button>
             </td>
             <td style="text-align: right; white-space: nowrap;">
-              <a href="/edit/{{ r[0] }}" class="btn-edit">Edit</a>
-              <button class="btn-danger" onclick="openDeleteModal({{ r[0] }})">Delete</button>
+              <a href="/edit/{{ r.id }}" class="btn-edit">Edit</a>
+              <button class="btn-danger" onclick="openDeleteModal({{ r.id }})">Delete</button>
             </td>
           </tr>
           {% else %}
@@ -333,13 +330,17 @@
         }
 
         async function toggleStatus(id, btn) {
-          const res = await fetch(`/toggle-status/${id}`, { method: 'POST' });
-          const data = await res.json();
-          if (data.status === 'success') {
-            btn.textContent = data.new_status;
-            btn.className = `badge ${data.new_status === 'Resolved' ? 'badge-resolved' : 'badge-pending'}`;
-            document.getElementById(`row-${id}`).setAttribute('data-status', data.new_status);
-            showToast(`Status updated to ${data.new_status}`);
+          try {
+            const res = await fetch(`/toggle-status/${id}`, { method: 'POST' });
+            const data = await res.json();
+            if (data.status === 'success') {
+              btn.textContent = data.new_status;
+              btn.className = `badge ${data.new_status === 'Resolved' ? 'badge-resolved' : 'badge-pending'}`;
+              document.getElementById(`row-${id}`).setAttribute('data-status', data.new_status);
+              showToast(`Status updated to ${data.new_status}`);
+            }
+          } catch(e) {
+            showToast('Failed to update status');
           }
         }
 
@@ -429,7 +430,6 @@
       </form>
 
       <script>
-        // Dynamic Time Greeting
         const hour = new Date().getHours();
         let greetingText = "Good Evening 🌙";
         if (hour < 12) greetingText = "Good Morning ☀️";
@@ -457,7 +457,6 @@
   </div>
 
   <script>
-    // 3D Parallax Tilt Effect on Mouse Move
     const card = document.getElementById('tiltCard');
     document.addEventListener('mousemove', (e) => {
       const xAxis = (window.innerWidth / 2 - e.pageX) / 45;
@@ -468,7 +467,6 @@
       card.style.transform = 'rotateY(0deg) rotateX(0deg)';
     });
 
-    // Auto Confetti & Alert Dismissal
     const alertBox = document.getElementById('flashAlert');
     if (alertBox) {
       if (alertBox.getAttribute('data-cat') === 'success') {
